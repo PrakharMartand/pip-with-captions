@@ -1,0 +1,12 @@
+{
+  "name": "pip-captions",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Picture-in-Picture that keeps the subtitles.",
+  "scripts": {
+    "test": "node test/e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

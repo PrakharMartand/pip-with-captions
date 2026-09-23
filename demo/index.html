@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PiP Captions demo</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 32px auto; padding: 0 16px; }
+    video { width: 100%; background: #000; border-radius: 8px; }
+    code, kbd { background: #eee; padding: 1px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>PiP Captions demo</h1>
+  <p>
+    The video below is generated in your browser and has a normal WebVTT
+    subtitle track. With the extension loaded, hover the video and click
+    <b>PiP + CC</b>, or press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>.
+  </p>
+  <p id="status">Generating video…</p>
+  <video id="video" controls muted loop playsinline></video>
+
+  <script>
+    // Record a few seconds of an animated canvas so the demo needs no media file.
+    const SECONDS = 8;
+    const CUES = [
+      [0.0, 2.0, 'Subtitles in Picture-in-Picture.'],
+      [2.0, 4.0, '<v Narrator>Speaker tags are stripped,</v>\nand line breaks are kept.'],
+      [4.0, 6.0, 'This line comes from a WebVTT track.'],
+      [6.0, 8.0, 'Close the window to put the video back.'],
+    ];
+
+    function vtt() {
+      const ts = (s) => `00:00:${s.toFixed(3).padStart(6, '0')}`;
+      return 'WEBVTT\n\n' + CUES.map(([a, b, t]) => `${ts(a)} --> ${ts(b)}\n${t}`).join('\n\n');
+    }
+
+    async function recordVideo() {
+      const canvas = Object.assign(document.createElement('canvas'), { width: 640, height: 360 });
+      const ctx = canvas.getContext('2d');
+      const recorder = new MediaRecorder(canvas.captureStream(30), { mimeType: 'video/webm' });
+      const chunks = [];
+      recorder.ondataavailable = (e) => chunks.push(e.data);
+      const start = performance.now();
+      const draw = () => {
+        const t = (performance.now() - start) / 1000;
+        ctx.fillStyle = `hsl(${(t * 45) % 360} 45% 30%)`;
+        ctx.fillRect(0, 0, 640, 360);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 72px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(t.toFixed(1) + 's', 320, 160);
+        if (t < SECONDS) requestAnimationFrame(draw);
+        else recorder.stop();
+      };
+      recorder.start();
+      draw();
+      await new Promise((r) => (recorder.onstop = r));
+      return new Blob(chunks, { type: 'video/webm' });
+    }
+
+    (async () => {
+      const video = document.getElementById('video');
+      const track = document.createElement('track');
+      Object.assign(track, {
+        kind: 'subtitles', srclang: 'en', label: 'English', default: true,
+        src: URL.createObjectURL(new Blob([vtt()], { type: 'text/vtt' })),
+      });
+      video.append(track);
+      video.src = URL.createObjectURL(await recordVideo());
+      await video.play();
+      document.getElementById('status').textContent = 'Ready.';
+      document.body.dataset.ready = '1';
+    })();
+  </script>
+</body>
+</html>

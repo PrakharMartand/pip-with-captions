@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "PiP Captions",
+  "version": "0.1.0",
+  "description": "Picture-in-Picture that keeps the subtitles.",
+  "minimum_chrome_version": "116",
+  "action": {
+    "default_title": "PiP with captions (Alt+Shift+P)"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "src/content/namespace.js",
+        "src/content/sources.js",
+        "src/content/pip.js",
+        "src/content/trigger.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
