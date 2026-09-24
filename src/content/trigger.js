@@ -83,17 +83,18 @@ chrome.runtime.onMessage.addListener((msg) => {
 
   // Cached briefly: finding videos inside shadow roots walks the whole page.
   let videos = [];
-  let videosAt = 0;
+  let videosAt = -Infinity;
   const videoAt = (x, y) => {
     if (performance.now() - videosAt > 1000) {
       videos = PipCaptions.allVideos();
       videosAt = performance.now();
     }
-    return videos.find((v) => {
+    const underPointer = videos.filter((v) => {
       const r = v.getBoundingClientRect();
       return r.width >= 200 && r.height >= 112 &&
         x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     });
+    return PipCaptions.pickVideo(underPointer);
   };
 
   const hide = () => {

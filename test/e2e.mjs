@@ -105,27 +105,42 @@ await test('WebVTT track: hover button opens PiP with captions, close restores v
 });
 
 for (const site of sites) {
-  await test(`${site.name} DOM captions under a strict CSP: Alt+Shift+P opens PiP with captions`, async () => {
+  const how = site.trigger === 'button' ? 'hover button' : 'Alt+Shift+P';
+  await test(`${site.name} DOM captions under a strict CSP: ${how} opens PiP with the playing video and captions`, async () => {
     const page = await context.newPage();
     const logs = [];
     page.on('console', (m) => m.text().startsWith('[PiP Captions]') && logs.push(m.text()));
     await page.goto(site.url);
     await page.waitForSelector('body[data-ready]');
-    await page.keyboard.press('Alt+Shift+P');
+    if (site.trigger === 'button') {
+      const box = await page.locator('video:not(.decoy)').boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.waitForTimeout(200);
+      await page.mouse.click(box.x + box.width - 45, box.y + 24);
+    } else {
+      await page.keyboard.press('Alt+Shift+P');
+    }
     await waitForPip(page);
     const opening = logs.find((l) => l.startsWith('[PiP Captions] opening'));
     assert.ok(opening, 'should log diagnostics on open');
     assert.equal(JSON.parse(opening.slice(opening.indexOf('{'))).captionSource, site.source);
 
-    // The PiP window's own styles and controls must survive the page's CSP.
+    // The PiP window's own styles and controls must survive the page's CSP,
+    // and it must hold the video that was playing.
     const pip = await page.evaluate(() => {
       const w = documentPictureInPicture.window;
+      const video = w.document.querySelector('video');
       return {
-        videoPosition: w.getComputedStyle(w.document.querySelector('video')).position,
+        videoPosition: w.getComputedStyle(video).position,
         controls: w.document.querySelectorAll('#pipc-controls > *').length,
+        movedPlayingVideo: !video.paused && !video.classList.contains('decoy'),
       };
     });
-    assert.deepEqual(pip, { videoPosition: 'absolute', controls: 4 }, 'PiP window should be styled');
+    assert.deepEqual(
+      pip,
+      { videoPosition: 'absolute', controls: 4, movedPlayingVideo: true },
+      'PiP window should be styled and hold the playing video'
+    );
 
     const captions = await collectCaptions(page, 3500);
     console.log('   captions seen:', captions);

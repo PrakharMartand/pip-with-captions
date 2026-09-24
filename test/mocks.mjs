@@ -52,9 +52,14 @@ export const sites = [
     source: 'prime',
     url: 'https://www.primevideo.com/detail/test',
     // The outer classes are Prime's generated ones; only the captions-text
-    // class is stable.
+    // class is stable. Prime also stacks an idle <video> over the playing
+    // one, which the extension must not pick. Open via the hover button,
+    // which used to take the first video under the pointer.
+    trigger: 'button',
     player: `
-      <div class="fk0grf2"><video muted></video>
+      <div class="fk0grf2" style="position: relative; width: 640px; height: 360px;">
+        <video class="decoy" muted style="position: absolute; inset: 0; width: 100%; height: 100%;"></video>
+        <video muted style="position: absolute; inset: 0; width: 100%; height: 100%;"></video>
         <div class="for4ikd f1kcui98"><div id="captions" class="f1iwgj00" dir="auto"></div></div>
       </div>`,
     render: (lines) =>
@@ -109,9 +114,12 @@ ${site.player}
     ctx.fillStyle = 'hsl(' + (Date.now() / 20) % 360 + ' 50% 40%)';
     ctx.fillRect(0, 0, 320, 180);
   }, 50);
-  const video = document.querySelector('video');
+  const video = document.querySelector('video:not(.decoy)');
   video.srcObject = canvas.captureStream(20);
   video.play();
+  // An idle video with a source but never played, like Prime's.
+  const decoy = document.querySelector('video.decoy');
+  if (decoy) decoy.srcObject = canvas.captureStream(1);
 
   let container = document.getElementById('captions');
   if (${!!site.shadow}) {

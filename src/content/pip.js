@@ -31,15 +31,19 @@ PipCaptions.PIP_CSS = `
   #pipc-time { color: #fff; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 `;
 
-// The biggest visible video, preferring one that is playing.
-PipCaptions.pickVideo = function () {
-  const score = (v) => {
+// The video to move: a playing one beats one that has started, which beats
+// an idle one; size breaks ties. Prime Video keeps an idle <video> stacked
+// over the real one, so position or DOM order alone picks the wrong one.
+PipCaptions.pickVideo = function (videos = PipCaptions.allVideos()) {
+  const rank = (v) => {
     const r = v.getBoundingClientRect();
-    return r.width * r.height * (v.paused ? 1 : 4);
+    return [!v.paused && !v.ended ? 1 : 0, v.currentTime > 0 ? 1 : 0, r.width * r.height];
   };
-  return PipCaptions.allVideos()
-    .filter((v) => v.readyState > 0 && score(v) > 0)
-    .sort((a, b) => score(b) - score(a))[0];
+  const byRank = (a, b) => {
+    const [ra, rb] = [rank(a), rank(b)];
+    return rb[0] - ra[0] || rb[1] - ra[1] || rb[2] - ra[2];
+  };
+  return videos.filter((v) => v.readyState > 0 && rank(v)[2] > 0).sort(byRank)[0];
 };
 
 // Must be called from a user gesture in the page (click or key press).
