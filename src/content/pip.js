@@ -108,8 +108,11 @@ PipCaptions.open = async function (video) {
     );
   };
   let source = PipCaptions.attachCaptions(video, emit);
-  // Shows up in the page's DevTools console; handy when a site has no captions.
-  console.info('[PiP Captions] caption source:', source ? source.name : 'none found');
+  PipCaptions.log('opening', {
+    captionSource: source ? source.name : 'none found',
+    picked: PipCaptions.describeVideo(video),
+    videosOnPage: PipCaptions.allVideos().map(PipCaptions.describeVideo),
+  });
 
   // Moving the element synchronously keeps it playing: a media element only
   // pauses if it is still outside every document at the next stable state.
@@ -118,6 +121,7 @@ PipCaptions.open = async function (video) {
   video.controls = false; // ours replace them
   video.classList.add('pipc-video');
   doc.body.append(video, captions);
+  const stopWatching = PipCaptions.watchVideo(video, pip);
 
   const controls = PipCaptions.buildControls(doc, video, {
     toggleCaptions() {
@@ -138,6 +142,7 @@ PipCaptions.open = async function (video) {
   PipCaptions.session = { close, video, get source() { return source && source.name; } };
 
   pip.addEventListener('pagehide', () => {
+    stopWatching();
     video.textTracks.removeEventListener('addtrack', onAddTrack);
     controls.destroy();
     if (source) source.detach();
@@ -148,6 +153,55 @@ PipCaptions.open = async function (video) {
     else video.setAttribute('style', saved.style);
     PipCaptions.session = null;
   });
+};
+
+// Diagnostics go to the page's DevTools console, prefixed so they're easy
+// to filter. Details are JSON so they survive copy-paste into a bug report.
+PipCaptions.log = function (message, details) {
+  console.info(`[PiP Captions] ${message}` + (details ? ` ${JSON.stringify(details)}` : ''));
+};
+
+PipCaptions.describeVideo = function (v) {
+  const r = v.getBoundingClientRect();
+  return {
+    size: `${Math.round(r.width)}x${Math.round(r.height)}`,
+    paused: v.paused,
+    time: Math.round(v.currentTime),
+    readyState: v.readyState,
+    networkState: v.networkState,
+    drm: !!v.mediaKeys,
+    src: (v.currentSrc || v.src || (v.srcObject ? 'srcObject' : 'none')).slice(0, 60),
+    error: v.error && v.error.code,
+  };
+};
+
+// Sites whose player reacts badly to its <video> moving show up here: the
+// video is emptied, the site builds a new one, or it takes the video back.
+PipCaptions.watchVideo = function (video, pip) {
+  const events = ['emptied', 'abort', 'error', 'stalled', 'ended'];
+  const onEvent = (e) => PipCaptions.log(`video ${e.type}`, PipCaptions.describeVideo(video));
+  events.forEach((ev) => video.addEventListener(ev, onEvent));
+
+  const page = new MutationObserver((records) => {
+    const added = records.some((r) =>
+      [...r.addedNodes].some(
+        (n) => n.nodeType === 1 && (n.localName === 'video' || n.querySelector('video'))
+      )
+    );
+    if (added) PipCaptions.log('the page added a new <video> while PiP is open; the site may have rebuilt its player');
+  });
+  page.observe(document.documentElement, { childList: true, subtree: true });
+
+  const pipWindow = new MutationObserver(() => {
+    if (!pip.document.contains(video)) PipCaptions.log('the site took the video out of the PiP window');
+  });
+  pipWindow.observe(pip.document.body, { childList: true });
+
+  return () => {
+    events.forEach((ev) => video.removeEventListener(ev, onEvent));
+    page.disconnect();
+    pipWindow.disconnect();
+  };
 };
 
 // For pages whose tracks are all "disabled": turn the first one on (hidden,

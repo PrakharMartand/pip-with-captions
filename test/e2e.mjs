@@ -107,10 +107,15 @@ await test('WebVTT track: hover button opens PiP with captions, close restores v
 for (const site of sites) {
   await test(`${site.name} DOM captions under a strict CSP: Alt+Shift+P opens PiP with captions`, async () => {
     const page = await context.newPage();
+    const logs = [];
+    page.on('console', (m) => m.text().startsWith('[PiP Captions]') && logs.push(m.text()));
     await page.goto(site.url);
     await page.waitForSelector('body[data-ready]');
     await page.keyboard.press('Alt+Shift+P');
     await waitForPip(page);
+    const opening = logs.find((l) => l.startsWith('[PiP Captions] opening'));
+    assert.ok(opening, 'should log diagnostics on open');
+    assert.equal(JSON.parse(opening.slice(opening.indexOf('{'))).captionSource, site.source);
 
     // The PiP window's own styles and controls must survive the page's CSP.
     const pip = await page.evaluate(() => {

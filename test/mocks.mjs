@@ -2,7 +2,8 @@
 // site draws captions (as DOM over the video, not text tracks), cycling
 // through CAPTIONS once a second.
 //
-// The markup is our best guess at each site's current player; a passing
+// Prime Video and Hotstar captions copy markup captured from the real sites
+// (Sept 2026). The rest is our best guess at each site's player. A passing
 // test means the extension handles that markup, not that the site still
 // uses it.
 
@@ -11,12 +12,14 @@ export const EXPECTED = ['First caption', 'Second caption, | on two lines'];
 
 // Real streaming sites send strict CSPs; the PiP window inherits the page's.
 // Content scripts are exempt, and the tests check that the PiP window's
-// styles still apply.
-export const CSP = "style-src 'self'";
+// styles still apply. This blocks inline <style> elements but not style
+// attributes, which the captured caption markup relies on.
+export const CSP = "style-src-elem 'self'";
 
 export const sites = [
   {
     name: 'YouTube',
+    source: 'youtube',
     url: 'https://www.youtube.com/watch?v=test',
     player: `
       <div class="html5-video-player">
@@ -32,6 +35,7 @@ export const sites = [
   },
   {
     name: 'Netflix',
+    source: 'netflix',
     url: 'https://www.netflix.com/watch/1',
     player: `
       <div class="watch-video">
@@ -45,20 +49,42 @@ export const sites = [
   },
   {
     name: 'Prime Video',
+    source: 'prime',
     url: 'https://www.primevideo.com/detail/test',
+    // The outer classes are Prime's generated ones; only the captions-text
+    // class is stable.
     player: `
-      <div class="webPlayerSDKContainer">
-        <div class="rendererContainer"><video muted></video></div>
-        <div class="atvwebplayersdk-captions-overlay">
-          <div id="captions" class="atvwebplayersdk-captions-region"></div>
+      <div class="fk0grf2"><video muted></video>
+        <div class="for4ikd f1kcui98"><div id="captions" class="f1iwgj00" dir="auto"></div></div>
+      </div>`,
+    render: (lines) =>
+      lines.length
+        ? '<div style="text-align: center; display: flex; flex-direction: column;">' +
+          '<p style="width: 100%; margin: 0px;"><span class="fbhsa9">' +
+          lines.map((l) => `<span class="atvwebplayersdk-captions-text f7j034j">${l}</span>`).join('<br>') +
+          '</span></p></div>'
+        : '',
+  },
+  {
+    // Shaka Player's caption layer, as rendered on hotstar.com.
+    name: 'Hotstar (Shaka Player)',
+    source: 'player-library',
+    url: 'https://www.hotstar.com/in/shows/test',
+    player: `
+      <div style="width: 100%; height: 100%; overflow: hidden;"><video muted></video>
+        <div style="position: absolute; top: 0; left: 0;">
+          <div id="captions" class="shaka-text-container upgraded"></div>
         </div>
       </div>`,
     render: (lines) =>
-      lines.length ? `<span class="atvwebplayersdk-captions-text">${lines.join('<br>')}</span>` : '',
+      lines.length
+        ? `<div style="white-space: pre-wrap; color: white;"><span style="font-style: normal;">${lines.join('\n')}</span></div>`
+        : '',
   },
   {
     // Disney+ renders its player inside a shadow root.
     name: 'Disney+',
+    source: 'disney',
     url: 'https://www.disneyplus.com/play/test',
     shadow: true,
     player: `<disney-web-player><video muted></video></disney-web-player>`,

@@ -52,10 +52,21 @@ PipCaptions.splitLines = function (texts) {
     .filter(Boolean);
 };
 
-// innerText keeps <br> as line breaks; textContent is the fallback for
-// nodes that aren't rendered.
+// innerText keeps <br> and pre-wrap newlines as line breaks. Hidden nodes
+// are skipped: for those innerText falls back to the raw text, which would
+// resurface a stale caption the site has hidden.
 PipCaptions.textLines = function (nodes) {
-  return PipCaptions.splitLines(nodes.map((n) => n.innerText || n.textContent || ''));
+  return PipCaptions.splitLines(
+    nodes.filter((n) => !n.checkVisibility || n.checkVisibility()).map((n) => n.innerText || '')
+  );
+};
+
+// The closest ancestor of `el` (up to `levels` up) containing `selector`.
+PipCaptions.nearestWith = function (el, selector, levels = 5) {
+  for (let node = el.parentElement; node && levels-- > 0; node = node.parentElement) {
+    if (node.querySelector(selector)) return node;
+  }
+  return null;
 };
 
 // YouTube draws captions as DOM inside the player; there are no text tracks.
@@ -113,6 +124,30 @@ PipCaptions.sources.push({
         PipCaptions.queryAll(roots, '.dss-subtitle-renderer-cue, .hive-subtitle-renderer-cue')
       );
     return PipCaptions.observeDom(roots, read, emit);
+  },
+});
+
+// Caption layers of common player libraries, which many sites embed. Shaka
+// Player's is what Hotstar (and JioCinema, SonyLIV, …) render into.
+PipCaptions.PLAYER_CAPTION_SELECTORS = [
+  '.shaka-text-container', // Shaka Player
+  '.vjs-text-track-display', // Video.js
+  '.jw-captions', // JW Player
+  '.plyr__captions', // Plyr
+  '.bmpui-ui-subtitle-overlay', // Bitmovin
+];
+
+PipCaptions.sources.push({
+  name: 'player-library',
+  matches: () => true,
+  attach(video, emit) {
+    // Players that let the browser draw captions leave their layer empty.
+    if ([...video.textTracks].some((t) => t.mode === 'showing')) return null;
+    const selector = PipCaptions.PLAYER_CAPTION_SELECTORS.join(', ');
+    const root = PipCaptions.nearestWith(video, selector);
+    if (!root) return null;
+    const read = () => PipCaptions.textLines([...root.querySelectorAll(selector)]);
+    return PipCaptions.observeDom(root, read, emit);
   },
 });
 

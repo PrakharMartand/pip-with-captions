@@ -21,6 +21,9 @@ which opens an always-on-top window that can hold any HTML:
 2. Reads the current caption from the page:
    - **YouTube, Netflix, Prime Video, Disney+**: watches the site's caption
      DOM with a `MutationObserver`. See `src/content/sources.js`.
+   - **Sites built on a common player library**: Shaka Player (Hotstar,
+     JioCinema, SonyLIV, …), Video.js, JW Player, Plyr and Bitmovin, by
+     watching the library's caption layer next to the video.
    - **Any site with `<track>` subtitles**: listens to `cuechange` on the
      active text track.
 3. Draws the caption, sized to the window, plus a small control bar (play/pause,
@@ -64,8 +67,9 @@ HEADED=1 npm test # watch it run
 ```
 
 The end-to-end test opens PiP on the WebVTT demo and on mock YouTube,
-Netflix, Prime Video and Disney+ pages (`test/mocks.mjs`), served with a
-strict CSP. It checks that captions show up in the PiP window, that the
+Netflix, Prime Video, Hotstar and Disney+ pages (`test/mocks.mjs`), served
+with a strict CSP. The Prime Video and Hotstar caption markup is copied from
+the real sites. It checks that captions show up in the PiP window, that the
 video keeps playing, and that the video is restored when the window closes.
 The mocks use our best guess at each site's markup, so passing tests don't
 prove the real sites still match.
@@ -94,13 +98,26 @@ Site sources are listed before the generic `native` one, so they win.
 - **Chromium only.** Firefox and Safari don't have Document PiP yet. There the
   extension falls back to classic PiP without captions. (Firefox's built-in
   PiP already shows subtitles on many sites.)
-- **Site readers are unverified on the real sites.** YouTube, Netflix, Prime
-  Video and Disney+ all depend on class names that the sites can change at any
-  time. If captions don't show up, open DevTools on the page: the extension
-  logs `[PiP Captions] caption source: …` when the window opens. Then inspect
-  the on-screen caption and compare its classes with `src/content/sources.js`.
-- **Some players may react badly** to their `<video>` leaving the page. Test
-  a site before relying on it.
+- **Site readers can break when sites change their markup.** The Prime Video
+  and Hotstar readers match markup captured from the real sites; the YouTube,
+  Netflix and Disney+ readers are guesses and haven't been checked there.
+- **Some players may react badly** to their `<video>` leaving the page: the
+  video can go blank, or the site can rebuild its player. Test a site before
+  relying on it.
+
+## Debugging a site
+
+Open DevTools on the page (not the PiP window) and filter the console for
+`[PiP Captions]`. When the window opens, the extension logs which caption
+source it picked, the video it moved and every other video on the page. While
+the window is open, it also logs when:
+
+- the moved video is emptied, errors or stalls,
+- the page adds a new `<video>` (the site rebuilt its player), or
+- the site takes the video back out of the PiP window.
+
+When captions are missing, right-click the on-screen caption, choose
+**Inspect**, and compare its classes with `src/content/sources.js`.
 - **Not yet in the extension:** a canvas + `captureStream()` fallback for
   browsers without Document PiP, caption style settings, and more sites
-  (Hotstar, Coursera, …).
+  (Coursera, …).
