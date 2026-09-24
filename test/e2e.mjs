@@ -1,6 +1,7 @@
 // End-to-end test: loads the unpacked extension into Chromium, opens the PiP
-// window on (1) the WebVTT demo page and (2) a mock YouTube page, and checks
-// that captions appear in the PiP window and the video returns on close.
+// window on (1) the WebVTT demo page and (2) mock pages for each supported
+// site, and checks that captions appear in the PiP window and the video
+// returns on close.
 //
 //   npm install && npm test
 
@@ -10,10 +11,10 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { sites, mockPage, EXPECTED, CSP } from './mocks.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const demoHtml = readFileSync(join(root, 'demo/index.html'), 'utf8');
-const youtubeHtml = readFileSync(join(root, 'test/fake-youtube.html'), 'utf8');
 
 const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'pipc-')), {
   channel: 'chromium', // the new headless mode, which can load extensions
@@ -21,7 +22,12 @@ const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir()
   args: [`--disable-extensions-except=${root}`, `--load-extension=${root}`],
 });
 await context.route('https://demo.test/**', (r) => r.fulfill({ contentType: 'text/html', body: demoHtml }));
-await context.route('https://www.youtube.com/**', (r) => r.fulfill({ contentType: 'text/html', body: youtubeHtml }));
+for (const site of sites) {
+  const origin = new URL(site.url).origin;
+  await context.route(`${origin}/**`, (r) =>
+    r.fulfill({ contentType: 'text/html', headers: { 'content-security-policy': CSP }, body: mockPage(site) })
+  );
+}
 
 // Collect every distinct caption shown in the PiP window for `ms`.
 async function collectCaptions(page, ms) {
@@ -98,24 +104,39 @@ await test('WebVTT track: hover button opens PiP with captions, close restores v
   await page.close();
 });
 
-await test('YouTube DOM captions: Alt+Shift+P opens PiP and mirrors caption segments', async () => {
-  const page = await context.newPage();
-  await page.goto('https://www.youtube.com/watch?v=test');
-  await page.waitForSelector('body[data-ready]');
-  await page.keyboard.press('Alt+Shift+P');
-  await waitForPip(page);
+for (const site of sites) {
+  await test(`${site.name} DOM captions under a strict CSP: Alt+Shift+P opens PiP with captions`, async () => {
+    const page = await context.newPage();
+    await page.goto(site.url);
+    await page.waitForSelector('body[data-ready]');
+    await page.keyboard.press('Alt+Shift+P');
+    await waitForPip(page);
 
-  const captions = await collectCaptions(page, 3500);
-  console.log('   captions seen:', captions);
-  assert.ok(captions.includes('First YouTube caption'));
-  assert.ok(captions.includes('Second caption, | on two lines'));
+    // The PiP window's own styles and controls must survive the page's CSP.
+    const pip = await page.evaluate(() => {
+      const w = documentPictureInPicture.window;
+      return {
+        videoPosition: w.getComputedStyle(w.document.querySelector('video')).position,
+        controls: w.document.querySelectorAll('#pipc-controls > *').length,
+      };
+    });
+    assert.deepEqual(pip, { videoPosition: 'absolute', controls: 4 }, 'PiP window should be styled');
 
-  // Pressing the shortcut again closes the window.
-  await page.keyboard.press('Alt+Shift+P');
-  await page.waitForFunction(() => !documentPictureInPicture.window);
-  assert.ok(await page.evaluate(() => document.querySelector('.html5-video-container > video')));
-  await page.close();
-});
+    const captions = await collectCaptions(page, 3500);
+    console.log('   captions seen:', captions);
+    for (const text of EXPECTED) assert.ok(captions.includes(text), `missing caption: ${text}`);
+
+    // Pressing the shortcut again closes the window and returns the video.
+    await page.keyboard.press('Alt+Shift+P');
+    await page.waitForFunction(() => !documentPictureInPicture.window);
+    const back = await page.evaluate(() =>
+      !!(document.querySelector('video') ||
+        document.querySelector('disney-web-player')?.shadowRoot?.querySelector('video'))
+    );
+    assert.ok(back, 'video should be back in the page');
+    await page.close();
+  });
+}
 
 await context.close();
 process.exit(failed ? 1 : 0);

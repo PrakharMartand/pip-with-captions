@@ -37,7 +37,7 @@ PipCaptions.pickVideo = function () {
     const r = v.getBoundingClientRect();
     return r.width * r.height * (v.paused ? 1 : 4);
   };
-  return [...document.querySelectorAll('video')]
+  return PipCaptions.allVideos()
     .filter((v) => v.readyState > 0 && score(v) > 0)
     .sort((a, b) => score(b) - score(a))[0];
 };
@@ -108,6 +108,8 @@ PipCaptions.open = async function (video) {
     );
   };
   let source = PipCaptions.attachCaptions(video, emit);
+  // Shows up in the page's DevTools console; handy when a site has no captions.
+  console.info('[PiP Captions] caption source:', source ? source.name : 'none found');
 
   // Moving the element synchronously keeps it playing: a media element only
   // pauses if it is still outside every document at the next stable state.

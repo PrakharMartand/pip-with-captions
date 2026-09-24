@@ -12,12 +12,37 @@
 // MutationObserver callbacks are microtasks, so this keeps working while the
 // tab is in the background (where requestAnimationFrame and timers stall),
 // which is exactly when PiP is in use.
-PipCaptions.observeDom = function (root, read, emit) {
+// `roots` is a node or an array of nodes (e.g. a page plus its shadow roots,
+// which a MutationObserver on the page can't see into).
+PipCaptions.observeDom = function (roots, read, emit) {
   const flush = () => emit(read());
   const mo = new MutationObserver(flush);
-  mo.observe(root, { subtree: true, childList: true, characterData: true });
+  for (const root of [].concat(roots)) {
+    mo.observe(root, { subtree: true, childList: true, characterData: true });
+  }
   flush();
   return () => mo.disconnect();
+};
+
+// All open shadow roots under `root`, including nested ones.
+PipCaptions.shadowRoots = function (root = document) {
+  const found = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+  for (let el = walker.nextNode(); el; el = walker.nextNode()) {
+    if (el.shadowRoot) found.push(el.shadowRoot, ...PipCaptions.shadowRoots(el.shadowRoot));
+  }
+  return found;
+};
+
+PipCaptions.queryAll = function (roots, selector) {
+  return [].concat(roots).flatMap((r) => [...r.querySelectorAll(selector)]);
+};
+
+// Videos in the page. Only walks shadow roots when the light DOM has none,
+// since that walk touches every element.
+PipCaptions.allVideos = function () {
+  const videos = [...document.querySelectorAll('video')];
+  return videos.length ? videos : PipCaptions.queryAll(PipCaptions.shadowRoots(), 'video');
 };
 
 PipCaptions.splitLines = function (texts) {
@@ -59,6 +84,35 @@ PipCaptions.sources.push({
     const read = () =>
       PipCaptions.textLines([...root.querySelectorAll('.player-timedtext-text-container')]);
     return PipCaptions.observeDom(root, read, emit);
+  },
+});
+
+// Prime Video (primevideo.com and amazon.* /gp/video) draws each caption
+// region as .atvwebplayersdk-captions-text. Experimental, like Netflix.
+PipCaptions.sources.push({
+  name: 'prime',
+  matches: (loc) => /(^|\.)(primevideo\.com|amazon\.[a-z.]+)$/.test(loc.hostname),
+  attach(video, emit) {
+    const root = video.closest('.webPlayerSDKContainer, .webPlayerContainer') || document.body;
+    const read = () =>
+      PipCaptions.textLines([...root.querySelectorAll('.atvwebplayersdk-captions-text')]);
+    return PipCaptions.observeDom(root, read, emit);
+  },
+});
+
+// Disney+ keeps its player, captions included, inside shadow roots. Class
+// names differ between its older (dss) and newer (hive) players.
+// Experimental, like Netflix.
+PipCaptions.sources.push({
+  name: 'disney',
+  matches: (loc) => /(^|\.)disneyplus\.com$/.test(loc.hostname),
+  attach(video, emit) {
+    const roots = [document.body, ...PipCaptions.shadowRoots()];
+    const read = () =>
+      PipCaptions.textLines(
+        PipCaptions.queryAll(roots, '.dss-subtitle-renderer-cue, .hive-subtitle-renderer-cue')
+      );
+    return PipCaptions.observeDom(roots, read, emit);
   },
 });
 

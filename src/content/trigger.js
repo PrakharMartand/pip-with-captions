@@ -46,6 +46,7 @@ PipCaptions.toast = (() => {
 
 PipCaptions.run = function (video) {
   PipCaptions.toggle(video).catch((err) => {
+    console.error('[PiP Captions]', err);
     if (err && err.name === 'NotAllowedError') {
       PipCaptions.toast('Chrome needs a click in the page. Use the “PiP + CC” button on the video or press Alt+Shift+P.');
     } else {
@@ -80,12 +81,20 @@ chrome.runtime.onMessage.addListener((msg) => {
   let hideTimer;
   const button = () => PipCaptions.ui().querySelector('button');
 
-  const videoAt = (x, y) =>
-    [...document.querySelectorAll('video')].find((v) => {
+  // Cached briefly: finding videos inside shadow roots walks the whole page.
+  let videos = [];
+  let videosAt = 0;
+  const videoAt = (x, y) => {
+    if (performance.now() - videosAt > 1000) {
+      videos = PipCaptions.allVideos();
+      videosAt = performance.now();
+    }
+    return videos.find((v) => {
       const r = v.getBoundingClientRect();
       return r.width >= 200 && r.height >= 112 &&
         x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     });
+  };
 
   const hide = () => {
     if (current) button().style.display = 'none';
@@ -96,7 +105,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   document.addEventListener(
     'pointermove',
     (e) => {
-      if (pending || !document.querySelector('video')) return;
+      if (pending) return;
       pending = true;
       requestAnimationFrame(() => {
         pending = false;
